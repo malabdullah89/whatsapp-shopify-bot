@@ -180,7 +180,7 @@ async function getOrderByNumber(orderInput) {
         name:   `#${orderNumber}`,
         status: 'any',
         limit:  1,
-        fields: 'id,name,financial_status,fulfillment_status,total_price,currency,created_at,fulfillments,line_items'
+        fields: 'id,name,financial_status,fulfillment_status,total_price,currency,created_at,fulfillments,line_items,shipping_lines,estimated_delivery_at'
       }
     });
 

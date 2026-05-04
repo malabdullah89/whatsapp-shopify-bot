@@ -1,14 +1,14 @@
 /**
  * flows.js — منطق المحادثة
- * قوائم نصية منسقة + صور منتجات + ثنائي اللغة AR/EN
+ * ARAB | عرب — النخلة 🌴
  */
 
 const sessions = require('./sessions');
-const { msg }  = require('./messages');
+const { msg, currencyForJid, convertPrice } = require('./messages');
 const shopify  = require('./shopify');
 
-const STORE_NAME  = process.env.STORE_NAME  || 'متجرنا';
-const ADMIN_PHONE = process.env.ADMIN_WHATSAPP;
+const STORE_NAME   = process.env.STORE_NAME  || 'ARAB | عرب';
+const ADMIN_PHONE  = '96598821121';   // رقم الدعم الثابت
 
 // ─────────────────────────────────────────────────────────────
 // نقطة الدخول
@@ -40,7 +40,7 @@ async function handleMessage(sock, jid, text, messageType = 'chat') {
 }
 
 // ─────────────────────────────────────────────────────────────
-// INIT — اختيار اللغة
+// INIT
 // ─────────────────────────────────────────────────────────────
 async function handleInit(sock, jid, input, session) {
   if (input === '1') {
@@ -56,7 +56,7 @@ async function handleInit(sock, jid, input, session) {
 
 async function sendWelcome(sock, jid) {
   await send(sock, jid,
-    `👋 *أهلاً وسهلاً! / Welcome!*\n\n` +
+    `🌴 *أهلاً وسهلاً في ARAB | عرب!*\n\n` +
     `اختر لغتك / Choose your language:\n\n` +
     `1️⃣  العربية 🇰🇼\n` +
     `2️⃣  English 🇬🇧`
@@ -68,15 +68,15 @@ async function sendWelcome(sock, jid) {
 // ─────────────────────────────────────────────────────────────
 async function sendMainMenu(sock, jid, lang) {
   const text = lang === 'ar'
-    ? `🏪 *${STORE_NAME}*\n\n📋 *القائمة الرئيسية:*\n\n` +
+    ? `🌴 *ARAB | عرب*\n\n📋 *القائمة الرئيسية:*\n\n` +
       `1️⃣  متابعة طلب 📦\n` +
-      `2️⃣  تسوّق المنتجات 🛍️\n` +
+      `2️⃣  تسوّق المنتجات 🌴\n` +
       `3️⃣  منتجاتنا وصورها 🖼️\n` +
       `4️⃣  التواصل مع الدعم 💬\n\n` +
       `_أرسل رقم الخيار_`
-    : `🏪 *${STORE_NAME}*\n\n📋 *Main Menu:*\n\n` +
+    : `🌴 *ARAB | عرب*\n\n📋 *Main Menu:*\n\n` +
       `1️⃣  Track Order 📦\n` +
-      `2️⃣  Shop Products 🛍️\n` +
+      `2️⃣  Shop Products 🌴\n` +
       `3️⃣  Products & Photos 🖼️\n` +
       `4️⃣  Contact Support 💬\n\n` +
       `_Send the option number_`;
@@ -93,7 +93,7 @@ async function handleMainMenu(sock, jid, input, session) {
     case '2':
     case '3':
       sessions.update(jid, { state: 'CATALOG' });
-      await showCatalog(sock, jid, lang);
+      await showCatalog(sock, jid, lang, jid);
       break;
     case '4':
       sessions.update(jid, { state: 'SUPPORT' });
@@ -124,13 +124,14 @@ async function handleTrackOrder(sock, jid, input, session) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// CATALOG — كل منتج برسالة + صورة منفصلة
+// CATALOG — عرض المنتجات مع تحويل العملة
 // ─────────────────────────────────────────────────────────────
-async function showCatalog(sock, jid, lang) {
-  const session = sessions.get(jid);
+async function showCatalog(sock, jid, lang, customerJid) {
+  const session  = sessions.get(jid);
+  const currency = currencyForJid(customerJid || jid);
 
   if (session.products && session.products.length > 0) {
-    await sendProductMenu(sock, jid, lang, session.products);
+    await sendProductMenu(sock, jid, lang, session.products, currency);
     return;
   }
 
@@ -143,17 +144,27 @@ async function showCatalog(sock, jid, lang) {
     return;
   }
 
-  sessions.update(jid, { products });
+  // حفظ المنتجات في الجلسة مع العملة المحوّلة
+  const convertedProducts = products.map(p => ({
+    ...p,
+    displayPrice:    convertPrice(p.price, currency),
+    displayCurrency: currency
+  }));
+  sessions.update(jid, { products: convertedProducts, currency });
+
+  // إبراز المنتج الأكثر مبيعاً
+  await send(sock, jid, msg(lang, 'bestseller'));
+  await sleep(400);
 
   const header = lang === 'ar'
-    ? `🛍️ *منتجاتنا — ${products.length} منتج*`
-    : `🛍️ *Our Products — ${products.length} items*`;
+    ? `🌴 *ARAB | عرب — ${convertedProducts.length} منتج*`
+    : `🌴 *ARAB | عرب — ${convertedProducts.length} items*`;
   await send(sock, jid, header);
   await sleep(400);
 
-  for (let i = 0; i < products.length; i++) {
-    const p       = products[i];
-    const caption = buildCaption(lang, i + 1, p);
+  for (let i = 0; i < convertedProducts.length; i++) {
+    const p       = convertedProducts[i];
+    const caption = buildCaption(lang, i + 1, p, currency);
     if (p.imageUrl) {
       try {
         await sock.sendMessage(jid, { image: { url: p.imageUrl }, caption });
@@ -167,21 +178,23 @@ async function showCatalog(sock, jid, lang) {
     await sleep(500);
   }
 
-  await sendProductMenu(sock, jid, lang, products);
+  await sendProductMenu(sock, jid, lang, convertedProducts, currency);
 }
 
-function buildCaption(lang, num, p) {
+function buildCaption(lang, num, p, currency) {
   const avail = p.available
     ? (lang === 'ar' ? '✅ متوفر' : '✅ In Stock')
     : (lang === 'ar' ? '❌ نفد المخزون' : '❌ Out of Stock');
   const desc = p.description ? '\n\n' + p.description.slice(0, 200) : '';
-  return `${numEmoji(num)} *${p.title}*\n💰 *${p.price} ${p.currency}*\n📦 ${avail}${desc}`;
+  const price = p.displayPrice || convertPrice(p.price, currency || 'KWD');
+  return `${numEmoji(num)} *${p.title}*\n💰 *${price}*\n📦 ${avail}${desc}`;
 }
 
-async function sendProductMenu(sock, jid, lang, products) {
+async function sendProductMenu(sock, jid, lang, products, currency) {
   let text = lang === 'ar' ? `📋 *اختر منتجاً:*\n\n` : `📋 *Choose a product:*\n\n`;
   products.forEach((p, i) => {
-    text += `${numEmoji(i + 1)}  *${p.title}* — ${p.price} ${p.currency} ${p.available ? '✅' : '❌'}\n`;
+    const price = p.displayPrice || convertPrice(p.price, currency || 'KWD');
+    text += `${numEmoji(i + 1)}  *${p.title}* — ${price} ${p.available ? '✅' : '❌'}\n`;
   });
   text += lang === 'ar'
     ? `\n_أرسل رقم المنتج أو *0* للرجوع_`
@@ -196,7 +209,7 @@ async function handleCatalog(sock, jid, input, session) {
 
   if (isNaN(index) || index < 0 || index >= products.length) {
     await send(sock, jid, msg(lang, 'invalidOption'));
-    await sendProductMenu(sock, jid, lang, products);
+    await sendProductMenu(sock, jid, lang, products, session.currency);
     return;
   }
 
@@ -212,11 +225,12 @@ async function sendProductDetail(sock, jid, lang, product) {
   const avail = product.available
     ? (lang === 'ar' ? '✅ متوفر' : '✅ In Stock')
     : (lang === 'ar' ? '❌ نفد المخزون' : '❌ Out of Stock');
-  const desc = product.description ? product.description.slice(0, 200) + '\n\n' : '';
-  const text = lang === 'ar'
-    ? `🛍️ *${product.title}*\n\n${desc}💰 السعر: *${product.price} ${product.currency}*\n📦 ${avail}\n\n` +
+  const desc  = product.description ? product.description.slice(0, 200) + '\n\n' : '';
+  const price = product.displayPrice || product.price + ' ' + product.currency;
+  const text  = lang === 'ar'
+    ? `🌴 *${product.title}*\n\n${desc}💰 السعر: *${price}*\n📦 ${avail}\n\n` +
       `1️⃣  إضافة للطلب 🛒\n0️⃣  رجوع ↩️`
-    : `🛍️ *${product.title}*\n\n${desc}💰 Price: *${product.price} ${product.currency}*\n📦 ${avail}\n\n` +
+    : `🌴 *${product.title}*\n\n${desc}💰 Price: *${price}*\n📦 ${avail}\n\n` +
       `1️⃣  Add to Order 🛒\n0️⃣  Back ↩️`;
   await send(sock, jid, text);
 }
@@ -271,7 +285,7 @@ async function handleAskQuantity(sock, jid, input, session) {
 async function showCartSummary(sock, jid, lang) {
   const session  = sessions.get(jid);
   const cart     = session.cart;
-  const currency = process.env.STORE_CURRENCY || 'KWD';
+  const currency = session.currency || process.env.STORE_CURRENCY || 'KWD';
 
   if (!cart.length) {
     await send(sock, jid, msg(lang, 'emptyCart'));
@@ -279,13 +293,17 @@ async function showCartSummary(sock, jid, lang) {
     return;
   }
 
-  const total = cart.reduce((sum, i) => sum + parseFloat(i.price) * i.quantity, 0).toFixed(2);
+  // الإجمالي بالعملة الأصلية (KWD) ثم نحوّله
+  const totalKWD = cart.reduce((sum, i) => sum + parseFloat(i.price) * i.quantity, 0);
+  const { convertPrice } = require('./messages');
+  const totalDisplay = convertPrice(totalKWD, currency);
 
   let text = lang === 'ar' ? '🛒 *ملخص طلبك:*\n\n' : '🛒 *Your Order Summary:*\n\n';
   cart.forEach((item, i) => {
-    text += `${i + 1}. ${item.productTitle} × ${item.quantity} = ${(parseFloat(item.price) * item.quantity).toFixed(2)} ${currency}\n`;
+    const lineTotal = convertPrice(parseFloat(item.price) * item.quantity, currency);
+    text += `${i + 1}. ${item.productTitle} × ${item.quantity} = ${lineTotal}\n`;
   });
-  text += `\n💰 *${lang === 'ar' ? 'الإجمالي' : 'Total'}: ${total} ${currency}*\n\n`;
+  text += `\n💰 *${lang === 'ar' ? 'الإجمالي' : 'Total'}: ${totalDisplay}*\n\n`;
   text += lang === 'ar'
     ? `1️⃣  إتمام الطلب والدفع 💳\n2️⃣  إضافة منتج آخر ➕\n3️⃣  مسح السلة 🗑️\n0️⃣  رجوع للقائمة`
     : `1️⃣  Checkout & Pay 💳\n2️⃣  Add another product ➕\n3️⃣  Clear cart 🗑️\n0️⃣  Back to menu`;
@@ -296,12 +314,10 @@ async function showCartSummary(sock, jid, lang) {
 async function handleCartReview(sock, jid, input, session) {
   const lang = session.lang;
   switch (input) {
-    case '1':
-      await processCheckout(sock, jid, lang, session);
-      break;
+    case '1': await processCheckout(sock, jid, lang, session); break;
     case '2':
       sessions.update(jid, { state: 'CATALOG' });
-      await showCatalog(sock, jid, lang);
+      await showCatalog(sock, jid, lang, jid);
       break;
     case '3':
       sessions.clearCart(jid);
@@ -330,15 +346,20 @@ async function processCheckout(sock, jid, lang, session) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// SUPPORT
+// SUPPORT — يرسل رقم جوال العميل للأدمن
 // ─────────────────────────────────────────────────────────────
 async function handleSupport(sock, jid, input, session) {
   const lang = session.lang;
-  if (ADMIN_PHONE && input !== '0') {
+  if (input !== '0') {
+    // تنظيف رقم جوال العميل من الـ JID
+    const customerPhone = cleanPhone(jid);
     try {
       await sock.sendMessage(formatPhone(ADMIN_PHONE), {
-        text: msg(lang, 'supportNotification', jid, input)
+        text: msg(lang, 'supportNotification', customerPhone, input)
       });
+      await send(sock, jid, lang === 'ar'
+        ? '✅ تم إرسال طلبك للدعم، سنتواصل معك قريباً.'
+        : '✅ Your request has been sent. We will contact you shortly.');
     } catch (e) {
       console.error('⚠️ Could not notify admin:', e.message);
     }
@@ -378,18 +399,24 @@ function formatPhone(phone) {
   return `${clean}@s.whatsapp.net`;
 }
 
-function detectLang(jid) {
-  try { return sessions.get(formatPhone(jid)).lang || 'ar'; }
-  catch { return 'ar'; }
+/** يُرجع رقم الجوال النظيف بدون @s.whatsapp.net */
+function cleanPhone(jid) {
+  return String(jid || '').replace('@s.whatsapp.net', '').replace('@c.us', '').replace(/\D/g, '');
 }
 
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+function detectLang(phone) {
+  const num = String(phone).replace(/\D/g, '');
+  // الدول العربية
+  if (/^(965|966|971|973|968|974|962|963|964|961|967|20|212|213|216|218)/.test(num)) return 'ar';
+  return 'en';
 }
 
 function numEmoji(n) {
-  return ['1️⃣','2️⃣','3️⃣','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣','9️⃣','🔟'][n - 1] || `${n}.`;
+  const map = { 1:'1️⃣',2:'2️⃣',3:'3️⃣',4:'4️⃣',5:'5️⃣',6:'6️⃣',7:'7️⃣',8:'8️⃣',9:'9️⃣',10:'🔟' };
+  return map[n] || `${n}.`;
 }
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 module.exports = {
   handleMessage,
