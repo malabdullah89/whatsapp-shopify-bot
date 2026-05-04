@@ -399,9 +399,13 @@ function formatPhone(phone) {
   return `${clean}@s.whatsapp.net`;
 }
 
-/** يُرجع رقم الجوال النظيف بدون @s.whatsapp.net */
+/** يُرجع رقم الجوال النظيف — يحذف @s.whatsapp.net و device suffix مثل :8 */
 function cleanPhone(jid) {
-  return String(jid || '').replace('@s.whatsapp.net', '').replace('@c.us', '').replace(/\D/g, '');
+  return String(jid || '')
+    .replace(/@s\.whatsapp\.net$/, '')
+    .replace(/@c\.us$/, '')
+    .split(':')[0]          // احذف device suffix مثل :8
+    .replace(/\D/g, '');   // احذف أي رمز غير رقمي
 }
 
 function detectLang(phone) {
