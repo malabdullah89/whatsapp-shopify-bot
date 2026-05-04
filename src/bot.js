@@ -20,6 +20,9 @@ const { handlePollVote }    = require('./polls');
 const sessions              = require('./sessions');
 
 let sock = null;
+let qrCurrentString = null;
+
+function getQRString() { return qrCurrentString; }
 
 async function startBot() {
   const { state, saveCreds } = await useMultiFileAuthState('./.baileys_auth');
@@ -51,6 +54,7 @@ async function startBot() {
     const { connection, lastDisconnect, qr } = update;
 
     if (qr) {
+      qrCurrentString = qr;
       console.log('\n📱 امسح هذا الـ QR بتطبيق واتساب:\n');
       qrcode.generate(qr, { small: true });
       console.log('\nWhatsApp > ⋮ > Linked Devices > Link a Device\n');
@@ -71,6 +75,7 @@ async function startBot() {
     }
 
     if (connection === 'open') {
+      qrCurrentString = null;
       console.log('✅ WhatsApp Bot is ready!');
       setClient(sock);
       setInterval(() => sessions.cleanup(), 6 * 60 * 60 * 1000);
@@ -137,4 +142,4 @@ function getClient() {
   return sock;
 }
 
-module.exports = { startBot, getClient };
+module.exports = { startBot, getQRString };

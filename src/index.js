@@ -4,8 +4,8 @@
 
 require('dotenv').config();
 
-const { startBot }           = require('./bot');
-const { startWebhookServer } = require('./webhooks');
+const { startBot, getQRString } = require('./bot');
+const { startWebhookServer, setQRStringGetter } = require('./webhooks');
 
 // التحقق من المتغيرات المطلوبة
 const required = ['SHOPIFY_STORE_DOMAIN', 'SHOPIFY_ADMIN_TOKEN'];
@@ -22,7 +22,8 @@ async function main() {
   console.log(`   Currency: ${process.env.STORE_CURRENCY || 'SAR'}`);
 
   // بدء webhook server (يستقبل أحداث Shopify)
-  startWebhookServer();
+  const server = startWebhookServer();
+  setQRStringGetter(getQRString);
 
   // بدء WhatsApp bot
   await startBot();

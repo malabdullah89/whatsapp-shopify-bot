@@ -10,8 +10,11 @@
 
 const express    = require('express');
 const crypto     = require('crypto');
+const QRCode     = require('qrcode');
 const sessions   = require('./sessions');
 const { sendOrderConfirmation, sendOrderShipped, sendAbandonedCartReminder } = require('./flows');
+let getQRStringFn = null;
+function setQRStringGetter(fn) { getQRStringFn = fn; }
 
 const WEBHOOK_SECRET  = process.env.SHOPIFY_WEBHOOK_SECRET;
 const ABANDONED_DELAY = parseInt(process.env.ABANDONED_CART_DELAY_MS) || 60 * 60 * 1000; // ساعة
@@ -73,6 +76,35 @@ function startWebhookServer() {
   // ─── Health check ───
   app.get('/', (req, res) => {
     res.json({ status: 'running', bot: whatsappClient ? 'connected' : 'connecting' });
+  });
+
+  // ─── QR Code Page ───
+  app.get('/qr', async (req, res) => {
+    const qrStr = getQRStringFn ? getQRStringFn() : null;
+    if (!qrStr) {
+      const msg = whatsappClient ? 'WhatsApp ✅ متصل بنجاح!' : 'QR code not ready yet. Refresh in 5 seconds...';
+      return res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="5"><title>QR</title><style>body{background:#111;color:#fff;display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;font-size:1.4em;text-align:center}</style></head><body>${msg}</body></html>`);
+    }
+    try {
+      const dataURL = await QRCode.toDataURL(qrStr, { width: 400, margin: 2 });
+      res.send(\`<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<meta http-equiv="refresh" content="20">
+<title>WhatsApp QR</title>
+<style>
+  body{background:#111;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;margin:0;font-family:sans-serif;}
+  img{border:10px solid white;border-radius:12px;width:320px;height:320px;}
+  p{color:#fff;margin-top:20px;font-size:1.1em;text-align:center;}
+  small{color:#aaa;}
+</style>
+</head><body>
+<img src="\${dataURL}" alt="WhatsApp QR Code"/>
+<p>📱 افتح واتساب ← الأجهزة المرتبطة ← ربط جهاز<br><small>يتجدد تلقائياً كل 20 ثانية</small></p>
+</body></html>\`);
+    } catch(e) {
+      res.status(500).send('Error generating QR: ' + e.message);
+    }
   });
 
   // ─── تأكيد الطلب ───
@@ -175,4 +207,4 @@ function startWebhookServer() {
   return app;
 }
 
-module.exports = { startWebhookServer, setClient };
+module.exports = { startWebhookServer, setClient, setQRStringGetter };
