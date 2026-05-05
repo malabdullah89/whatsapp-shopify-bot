@@ -8,21 +8,38 @@ const {
   default: makeWASocket,
   useMultiFileAuthState,
   DisconnectReason,
-  fetchLatestBaileysVersion
+  fetchLatestBaileysVersion,
+  jidNormalizedUser,
 } = require('@whiskeysockets/baileys');
-const { Boom }              = require('@hapi/boom');
-const qrcode                = require('qrcode-terminal');
-const pino                  = require('pino');
-const fs                    = require('fs');
-const { handleMessage }     = require('./flows');
-const { setClient }         = require('./webhooks');
-const { handlePollVote }    = require('./polls');
-const sessions              = require('./sessions');
+const { Boom }           = require('@hapi/boom');
+const qrcode             = require('qrcode-terminal');
+const pino               = require('pino');
+const fs                 = require('fs');
+const { handleMessage }  = require('./flows');
+const { setClient }      = require('./webhooks');
+const { handlePollVote } = require('./polls');
+const sessions           = require('./sessions');
 
-let sock = null;
+let sock            = null;
 let qrCurrentString = null;
 
 function getQRString() { return qrCurrentString; }
+
+/**
+ * تحويل remoteJid إلى JID نظيف بدون device suffix
+ * مثال: 96597001234:8@s.whatsapp.net → 96597001234@s.whatsapp.net
+ */
+function normalizeJid(rawJid) {
+  if (!rawJid) return rawJid;
+  try {
+    return jidNormalizedUser(rawJid);
+  } catch {
+    // fallback يدوي لإزالة device suffix
+    return rawJid
+      .replace(/:\d+/, '')
+      .replace('@c.us', '@s.whatsapp.net');
+  }
+}
 
 async function startBot() {
   const { state, saveCreds } = await useMultiFileAuthState('./.baileys_auth');
@@ -38,13 +55,13 @@ async function startBot() {
 
   sock = makeWASocket({
     version,
-    auth: state,
-    logger: pino({ level: 'silent' }),
-    printQRInTerminal: false,
-    browser: ['ARAB Bot', 'Chrome', '1.0.0'],
-    getMessage: async () => undefined,
+    auth:                           state,
+    logger:                         pino({ level: 'silent' }),
+    printQRInTerminal:              false,
+    browser:                        ['ARAB Bot', 'Chrome', '1.0.0'],
+    getMessage:                     async () => undefined,
     generateHighQualityLinkPreview: false,
-    syncFullHistory: false,
+    syncFullHistory:                false,
   });
 
   sock.ev.on('creds.update', saveCreds);
@@ -62,14 +79,12 @@ async function startBot() {
 
     if (connection === 'close') {
       const statusCode = (lastDisconnect?.error instanceof Boom)
-        ? lastDisconnect.error.output?.statusCode
-        : null;
+        ? lastDisconnect.error.output?.statusCode : null;
 
       if (statusCode === DisconnectReason.loggedOut) {
         console.log('🔐 تم تسجيل الخروج. حذف الـ session...');
         try { fs.rmSync('./.baileys_auth', { recursive: true, force: true }); } catch {}
       }
-
       console.log(`🔄 Reconnecting in 3s... (status: ${statusCode})`);
       setTimeout(() => startBot(), 3000);
     }
@@ -87,15 +102,20 @@ async function startBot() {
     if (type !== 'notify') return;
 
     const message = messages[0];
-    if (!message?.message) return;
-    if (message.key.fromMe) return;
-    if (message.key.remoteJid?.endsWith('@g.us')) return;
-    if (message.key.remoteJid === 'status@broadcast') return;
+    if (!message?.message)                                return;
+    if (message.key.fromMe)                               return;
+    if (message.key.remoteJid?.endsWith('@g.us'))         return;
+    if (message.key.remoteJid === 'status@broadcast')     return;
 
-    const jid        = message.key.remoteJid;
+    const rawJid = message.key.remoteJid;
+    const jid    = normalizeJid(rawJid);
+
+    // DEBUG: لتشخيص مشكلة رقم الهاتف — يظهر في Railway logs
+    console.log(`📩 [JID] raw="${rawJid}" | clean="${jid}" | name="${message.pushName || ''}"`);
+
     const msgContent = message.message;
-    let text         = '';
-    let msgType      = 'chat';
+    let text    = '';
+    let msgType = 'chat';
 
     if (msgContent.conversation) {
       text = msgContent.conversation;
@@ -106,8 +126,6 @@ async function startBot() {
     text = text.trim();
     if (!text) return;
 
-    console.log(`📩 [${new Date().toLocaleTimeString()}] ${jid.split('@')[0]}: ${text.slice(0, 50)}`);
-
     try {
       await handleMessage(sock, jid, text, msgType);
     } catch (err) {
@@ -116,18 +134,17 @@ async function startBot() {
     }
   });
 
-  // ─── ✅ استقبال أصوات الـ Poll (الضغط على الخيار) ───
+  // ─── ✅ استقبال أصوات الـ Poll ───
   sock.ev.on('messages.update', async (updates) => {
     for (const { key, update } of updates) {
       if (!update.pollUpdates?.length) continue;
-
       try {
         const result = handlePollVote(key, update.pollUpdates);
         if (!result) continue;
 
-        const { jid, optionId } = result;
-        console.log(`🗳️ [Poll Vote] ${jid.split('@')[0]}: اختار → ${optionId}`);
-
+        const { jid: rawPollJid, optionId } = result;
+        const jid = normalizeJid(rawPollJid);
+        console.log(`🗳️ [Poll] raw="${rawPollJid}" | clean="${jid}" | option=${optionId}`);
         await handleMessage(sock, jid, optionId, 'poll_response');
       } catch (err) {
         console.error('❌ Poll update error:', err.message);
@@ -138,8 +155,6 @@ async function startBot() {
   return sock;
 }
 
-function getClient() {
-  return sock;
-}
+function getClient() { return sock; }
 
 module.exports = { startBot, getQRString };
